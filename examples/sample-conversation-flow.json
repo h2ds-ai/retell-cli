@@ -1,0 +1,71 @@
+{
+  "name": "Sample Customer Service Flow",
+  "description": "A basic conversation flow for customer service interactions",
+  "global_prompt": "You are a professional customer service representative. Help customers efficiently while maintaining a friendly demeanor.",
+  "nodes": [
+    {
+      "node_id": "start",
+      "node_name": "Start Node",
+      "node_type": "default",
+      "instruction": {
+        "type": "prompt",
+        "content": "Greet the customer and ask how you can help them today."
+      },
+      "transitions": [
+        {
+          "destination_node_id": "help",
+          "description": "Customer needs assistance"
+        }
+      ]
+    },
+    {
+      "node_id": "help",
+      "node_name": "Help Node",
+      "node_type": "default",
+      "instruction": {
+        "type": "prompt",
+        "content": "Listen to the customer's issue and provide appropriate assistance. Be helpful and thorough."
+      },
+      "transitions": [
+        {
+          "destination_node_id": "resolve",
+          "description": "Issue has been addressed"
+        }
+      ]
+    },
+    {
+      "node_id": "resolve",
+      "node_name": "Resolution Node",
+      "node_type": "default",
+      "instruction": {
+        "type": "prompt",
+        "content": "Confirm the issue is resolved, ask if there's anything else, and thank them for calling."
+      },
+      "transitions": []
+    }
+  ],
+  "tools": [
+    {
+      "tool_id": "end_call_tool",
+      "type": "end_call",
+      "name": "end_call",
+      "description": "Use this to end the call when the conversation is complete",
+      "node_ids": ["resolve"]
+    },
+    {
+      "tool_id": "transfer_tool",
+      "type": "transfer_call",
+      "name": "transfer_to_human",
+      "description": "Transfer to a human agent if the issue cannot be resolved",
+      "destinations": [
+        {
+          "type": "number",
+          "number": "+1234567890",
+          "description": "Human support agent"
+        }
+      ],
+      "node_ids": ["help"]
+    }
+  ],
+  "starting_node_id": "start"
+}

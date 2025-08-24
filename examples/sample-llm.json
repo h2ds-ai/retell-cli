@@ -1,0 +1,45 @@
+{
+  "model": "gpt-4o",
+  "general_prompt": "You are a helpful customer service representative. Be professional, friendly, and efficient in helping customers with their inquiries.",
+  "begin_message": "Hello! Thank you for calling. How can I assist you today?",
+  "general_tools": [
+    {
+      "type": "end_call",
+      "name": "end_call",
+      "description": "End the call when the customer's issue is resolved or they want to hang up"
+    }
+  ],
+  "default_dynamic_variables": {
+    "company_name": "Your Company",
+    "business_hours": "9 AM to 5 PM EST",
+    "support_email": "support@example.com"
+  },
+  "starting_state": "greeting",
+  "states": [
+    {
+      "name": "greeting",
+      "state_prompt": "Greet the customer warmly and ask how you can help them today. Be professional and friendly.",
+      "edges": [
+        {
+          "destination_state_name": "handle_inquiry",
+          "description": "When customer states their question or issue"
+        }
+      ]
+    },
+    {
+      "name": "handle_inquiry",
+      "state_prompt": "Listen to the customer's inquiry and provide helpful information. If you cannot help, offer to transfer them or take a message.",
+      "edges": [
+        {
+          "destination_state_name": "closing",
+          "description": "When the customer's issue is resolved or they have no more questions"
+        }
+      ]
+    },
+    {
+      "name": "closing",
+      "state_prompt": "Thank the customer for calling, ask if there's anything else you can help with, and end the call politely.",
+      "edges": []
+    }
+  ]
+}

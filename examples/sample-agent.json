@@ -1,0 +1,23 @@
+{
+  "agent_name": "Sample Customer Service Agent",
+  "voice_id": "11labs-Rachel",
+  "language": "en-US",
+  "voice_temperature": 0.7,
+  "voice_speed": 1.0,
+  "volume": 1,
+  "enable_backchannel": true,
+  "backchannel_frequency": 0.8,
+  "backchannel_words": ["yeah", "uh-huh", "okay", "I see"],
+  "interruption_sensitivity": 0.7,
+  "responsiveness": 0.8,
+  "end_call_after_silence_ms": 15000,
+  "reminder_trigger_ms": 10000,
+  "reminder_max_count": 2,
+  "normalize_for_speech": true,
+  "enable_voicemail_detection": true,
+  "voicemail_message": "Hi, this is a automated message from our customer service. We noticed you might be unavailable. Please call us back at your convenience.",
+  "response_engine": {
+    "type": "retell-llm",
+    "llm_id": "llm_REPLACE_WITH_YOUR_LLM_ID"
+  }
+}

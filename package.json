@@ -1,0 +1,60 @@
+{
+  "name": "@h2ds-ai/retell-cli",
+  "version": "1.0.0",
+  "description": "Command-line interface for managing Retell AI voice agents, LLMs, and conversation flows",
+  "main": "cli.js",
+  "bin": {
+    "retell-cli": "./cli.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node cli.js",
+    "link": "npm link",
+    "unlink": "npm unlink",
+    "prepublishOnly": "echo 'Ready to publish to npm!'",
+    "postinstall": "echo 'Thank you for installing retell-cli! Run retell-cli --help to get started.'"
+  },
+  "keywords": [
+    "retell",
+    "retell-ai",
+    "cli",
+    "voice-ai",
+    "conversation-ai",
+    "llm",
+    "agent",
+    "voice-agents",
+    "ai-tools",
+    "developer-tools",
+    "automation"
+  ],
+  "author": "H2DS AI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/h2ds-ai/retell-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/h2ds-ai/retell-cli/issues"
+  },
+  "homepage": "https://github.com/h2ds-ai/retell-cli#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "retell-sdk": "^4.43.0"
+  },
+  "devDependencies": {},
+  "files": [
+    "cli.js",
+    "src/",
+    "examples/",
+    "README.md",
+    "LICENSE",
+    "CONTRIBUTING.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
