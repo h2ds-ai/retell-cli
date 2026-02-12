@@ -5,6 +5,7 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.retell
 
 # Test outputs
 test-*.json
@@ -38,3 +39,13 @@ temp/
 output/
 outputs/
 !examples/*.json
+
+# Retell flow configs (may contain secrets)
+current_flow.json
+junk.json
+
+# Internal docs and planning
+.agent-os/
+docs/
+mission-lite.md
+roadmap.md

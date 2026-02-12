@@ -4,8 +4,12 @@ const { Command } = require('commander');
 const fs = require('fs').promises;
 const path = require('path');
 const { getLlm, listLlm, deleteLlm, deployLlm, updateLlm } = require(path.join(__dirname, 'src', 'llms.js'));
-const { getFlow, listFlows, deleteFlow, createOrUpdateFlow } = require(path.join(__dirname, 'src', 'flows.js'));
+const { getFlow, listFlows, deleteFlow, createOrUpdateFlow, pullFlowWithSecrets } = require(path.join(__dirname, 'src', 'flows.js'));
 const { getAgent, listAgents, deleteAgent, deployAgent, updateAgent } = require(path.join(__dirname, 'src', 'agents.js'));
+const {
+  listTestCases, getTestCase, createTestCase, updateTestCase, deleteTestCase,
+  runBatchTest, getBatchTestStatus,
+} = require(path.join(__dirname, 'src', 'tests.js'));
 
 const program = new Command();
 
@@ -74,9 +78,15 @@ flow
   .description('Pull a Retell Conversation Flow configuration')
   .argument('<flow-id>', 'The ID of the flow to pull')
   .option('-o, --output <file-path>', 'Path to save the output JSON file')
+  .option('--no-secrets', 'Pull raw flow without extracting secrets')
   .action(async (flowId, options) => {
-    const flow = await getFlow(flowId);
-    await handleOutput(flow, options.output);
+    if (options.secrets === false) {
+      const flow = await getFlow(flowId);
+      await handleOutput(flow, options.output);
+    } else {
+      const flow = await pullFlowWithSecrets(flowId, options.output);
+      await handleOutput(flow, options.output);
+    }
   });
 
 flow
@@ -140,5 +150,89 @@ agent
   .description('Delete a Retell Agent')
   .argument('<agent-id>', 'The ID of the agent to delete')
   .action(deleteAgent);
+
+// Test Commands
+const test = program.command('test').description('Manage Retell Test Cases and Batch Tests');
+
+test
+  .command('list')
+  .description('List test cases for a conversation flow')
+  .argument('<flow-id>', 'The conversation flow ID')
+  .option('-o, --output <file-path>', 'Path to save the output JSON file')
+  .action(async (flowId, options) => {
+    const cases = await listTestCases(flowId);
+    await handleOutput(cases, options.output);
+  });
+
+test
+  .command('pull')
+  .description('Pull a single test case definition')
+  .argument('<test-id>', 'The test case ID')
+  .option('-o, --output <file-path>', 'Path to save the output JSON file')
+  .action(async (testId, options) => {
+    const tc = await getTestCase(testId);
+    await handleOutput(tc, options.output);
+  });
+
+test
+  .command('create')
+  .description('Create a test case from a JSON file')
+  .argument('<file-path>', 'Path to the test case JSON file')
+  .option('-o, --output <file-path>', 'Path to save the created test case')
+  .action(async (filePath, options) => {
+    const result = await createTestCase(filePath);
+    await handleOutput(result, options.output);
+  });
+
+test
+  .command('update')
+  .description('Update an existing test case')
+  .argument('<test-id>', 'The test case ID to update')
+  .argument('<file-path>', 'Path to the test case JSON file')
+  .option('-o, --output <file-path>', 'Path to save the updated test case')
+  .action(async (testId, filePath, options) => {
+    const result = await updateTestCase(testId, filePath);
+    await handleOutput(result, options.output);
+  });
+
+test
+  .command('delete')
+  .description('Delete a test case')
+  .argument('<test-id>', 'The test case ID to delete')
+  .action(deleteTestCase);
+
+test
+  .command('run')
+  .description('Run a batch test for a conversation flow')
+  .argument('<flow-id>', 'The conversation flow ID')
+  .option('--test-ids <file-path>', 'JSON file containing array of test case IDs to run')
+  .option('--poll', 'Wait for batch test to complete')
+  .option('--interval <ms>', 'Poll interval in milliseconds', '5000')
+  .option('--timeout <ms>', 'Maximum wait time in milliseconds', '600000')
+  .option('-o, --output <file-path>', 'Path to save the batch test result')
+  .action(async (flowId, options) => {
+    let testCaseIds = null;
+    if (options.testIds) {
+      const idsStr = await fs.readFile(options.testIds, 'utf8');
+      testCaseIds = JSON.parse(idsStr);
+    }
+
+    const result = await runBatchTest(flowId, testCaseIds, {
+      poll: !!options.poll,
+      intervalMs: parseInt(options.interval, 10),
+      timeoutMs: parseInt(options.timeout, 10),
+    });
+    await handleOutput(result, options.output);
+  });
+
+test
+  .command('status')
+  .description('Check the status of a batch test')
+  .argument('<batch-id>', 'The batch test ID')
+  .option('-o, --output <file-path>', 'Path to save the batch test status')
+  .action(async (batchId, options) => {
+    const result = await getBatchTestStatus(batchId);
+    await handleOutput(result, options.output);
+  });
 
 program.parse(process.argv);

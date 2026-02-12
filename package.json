@@ -7,7 +7,7 @@
     "retell-cli": "./cli.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test tests/",
     "start": "node cli.js",
     "link": "npm link",
     "unlink": "npm unlink",
