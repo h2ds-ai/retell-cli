@@ -82,9 +82,14 @@ async function deleteTestCase(testId) {
 
 async function createBatchTest(flowId, testCaseIds) {
   try {
-    const body = { conversation_flow_id: flowId };
+    const body = {
+      response_engine: {
+        type: 'conversation-flow',
+        conversation_flow_id: flowId,
+      },
+    };
     if (testCaseIds && testCaseIds.length > 0) {
-      body.test_case_ids = testCaseIds;
+      body.test_case_definition_ids = testCaseIds;
     }
 
     console.log(`Starting batch test for flow ${flowId}...`);

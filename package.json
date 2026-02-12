@@ -7,7 +7,7 @@
     "retell-cli": "./cli.js"
   },
   "scripts": {
-    "test": "node --test tests/",
+    "test": "node --test tests/*.test.js",
     "start": "node cli.js",
     "link": "npm link",
     "unlink": "npm unlink",
@@ -42,9 +42,8 @@
   },
   "dependencies": {
     "commander": "^14.0.0",
-    "retell-sdk": "^4.43.0"
+    "retell-sdk": "^4.66.0"
   },
-  "devDependencies": {},
   "files": [
     "cli.js",
     "src/",

@@ -166,6 +166,48 @@ function processMcpList(mcps, valueToVar, labelPrefix) {
 }
 
 /**
+ * Scan a nodes[] array for MCP-type node entries with potential secrets.
+ * McpNode entries within component nodes may contain headers, query_params, and url.
+ * Also scans for ComponentNode entries that inline nested components.
+ * Mutates nodes in place. Returns array of { envVar, value } entries.
+ */
+function processNodeList(nodes, valueToVar, labelPrefix) {
+  if (!Array.isArray(nodes)) return [];
+  const entries = [];
+
+  nodes.forEach((node, idx) => {
+    // MCP nodes may have headers/query_params/url at the node level or in mcp_config
+    const nodeLabel = node.name || node.node_id || `node_${idx}`;
+    const label = labelPrefix ? `${labelPrefix}_${nodeLabel}` : nodeLabel;
+
+    // Check for mcp-shaped data directly on the node
+    if (node.headers || node.query_params || node.url) {
+      entries.push(
+        ...scanObject(node.headers, label, 'HEADER', NON_SENSITIVE_HEADERS, valueToVar),
+      );
+      entries.push(
+        ...scanObject(node.query_params, label, 'QUERY_PARAM', null, valueToVar),
+      );
+      const urlEntry = extractScalarField(node, 'url', label, 'URL', valueToVar);
+      if (urlEntry) entries.push(urlEntry);
+    }
+
+    // Check for nested component data within ComponentNode entries
+    if (node.components && Array.isArray(node.components)) {
+      node.components.forEach((nestedComp, cIdx) => {
+        const cLabel = nestedComp.name || nestedComp.component_id || `nested_component_${cIdx}`;
+        const nestedLabel = label + '_' + cLabel;
+        entries.push(...processToolList(nestedComp.tools, valueToVar, nestedLabel));
+        entries.push(...processMcpList(nestedComp.mcps, valueToVar, nestedLabel));
+        entries.push(...processNodeList(nestedComp.nodes, valueToVar, nestedLabel));
+      });
+    }
+  });
+
+  return entries;
+}
+
+/**
  * Extract secrets from a flow config, returning the sanitized flow and a
  * map of env var names to secret values.
  *
@@ -181,16 +223,18 @@ function extractSecrets(flowData) {
   const valueToVar = new Map();
   const secretEntries = [];
 
-  // Top-level tools and mcps
+  // Top-level tools, mcps, and nodes
   secretEntries.push(...processToolList(sanitizedFlow.tools, valueToVar, ''));
   secretEntries.push(...processMcpList(sanitizedFlow.mcps, valueToVar, ''));
+  secretEntries.push(...processNodeList(sanitizedFlow.nodes, valueToVar, ''));
 
-  // Component-level tools and mcps
+  // Component-level tools, mcps, and nodes
   if (Array.isArray(sanitizedFlow.components)) {
     sanitizedFlow.components.forEach((component, cIdx) => {
       const cLabel = component.name || component.component_id || `component_${cIdx}`;
       secretEntries.push(...processToolList(component.tools, valueToVar, cLabel));
       secretEntries.push(...processMcpList(component.mcps, valueToVar, cLabel));
+      secretEntries.push(...processNodeList(component.nodes, valueToVar, cLabel));
     });
   }
 
@@ -264,17 +308,38 @@ function injectSecrets(flowData, envFilePath) {
     }
   }
 
+  function resolveNodeList(nodes) {
+    if (!Array.isArray(nodes)) return;
+    for (const node of nodes) {
+      resolveObject(node.headers);
+      resolveObject(node.query_params);
+      if (typeof node.url === 'string') {
+        node.url = resolveValue(node.url);
+      }
+      // Resolve nested components within nodes
+      if (node.components && Array.isArray(node.components)) {
+        for (const nestedComp of node.components) {
+          resolveToolList(nestedComp.tools);
+          resolveMcpList(nestedComp.mcps);
+          resolveNodeList(nestedComp.nodes);
+        }
+      }
+    }
+  }
+
   const unresolved = new Set();
 
-  // Top-level tools and mcps
+  // Top-level tools, mcps, and nodes
   resolveToolList(hydrated.tools);
   resolveMcpList(hydrated.mcps);
+  resolveNodeList(hydrated.nodes);
 
-  // Component-level tools and mcps
+  // Component-level tools, mcps, and nodes
   if (Array.isArray(hydrated.components)) {
     for (const component of hydrated.components) {
       resolveToolList(component.tools);
       resolveMcpList(component.mcps);
+      resolveNodeList(component.nodes);
     }
   }
 

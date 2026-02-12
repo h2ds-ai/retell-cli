@@ -328,6 +328,82 @@ describe('extractSecrets — components', () => {
     const envVar = Object.keys(secrets)[0];
     assert.ok(envVar.startsWith('BILLING'), `Expected env var to start with BILLING, got: ${envVar}`);
   });
+
+  it('extracts secrets from component nodes[] with MCP-like data', () => {
+    const flow = {
+      components: [
+        {
+          name: 'support',
+          nodes: [
+            {
+              name: 'mcp_lookup',
+              headers: { Authorization: 'Bearer node-tok' },
+              url: 'https://mcp-node.example.com/sse',
+            },
+          ],
+        },
+      ],
+    };
+
+    const { sanitizedFlow, secrets } = extractSecrets(flow);
+    assert.match(sanitizedFlow.components[0].nodes[0].headers.Authorization, /^\{\{.+\}\}$/);
+    assert.match(sanitizedFlow.components[0].nodes[0].url, /^\{\{.+\}\}$/);
+    assert.ok(Object.values(secrets).includes('Bearer node-tok'));
+    assert.ok(Object.values(secrets).includes('https://mcp-node.example.com/sse'));
+  });
+
+  it('extracts secrets from nested components within nodes', () => {
+    const flow = {
+      components: [
+        {
+          name: 'outer',
+          nodes: [
+            {
+              name: 'comp_node',
+              components: [
+                {
+                  name: 'inner_comp',
+                  tools: [
+                    { name: 'nested_tool', headers: { 'x-key': 'nested-secret' } },
+                  ],
+                  mcps: [
+                    { name: 'nested_mcp', url: 'https://nested.example.com' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const { sanitizedFlow, secrets } = extractSecrets(flow);
+    assert.match(sanitizedFlow.components[0].nodes[0].components[0].tools[0].headers['x-key'], /^\{\{.+\}\}$/);
+    assert.match(sanitizedFlow.components[0].nodes[0].components[0].mcps[0].url, /^\{\{.+\}\}$/);
+    assert.ok(Object.values(secrets).includes('nested-secret'));
+    assert.ok(Object.values(secrets).includes('https://nested.example.com'));
+  });
+
+  it('extracts secrets from standalone component object (no top-level mcps)', () => {
+    // A component object has tools[] and nodes[] but no top-level mcps or model_choice
+    const component = {
+      name: 'standalone',
+      tools: [
+        { name: 'comp_tool', headers: { 'x-api-key': 'standalone-secret' }, url: 'https://standalone.example.com' },
+      ],
+      nodes: [
+        { name: 'mcp_node', url: 'https://mcp-standalone.example.com' },
+      ],
+    };
+
+    const { sanitizedFlow, secrets } = extractSecrets(component);
+    assert.match(sanitizedFlow.tools[0].headers['x-api-key'], /^\{\{.+\}\}$/);
+    assert.match(sanitizedFlow.tools[0].url, /^\{\{.+\}\}$/);
+    assert.match(sanitizedFlow.nodes[0].url, /^\{\{.+\}\}$/);
+    assert.ok(Object.values(secrets).includes('standalone-secret'));
+    assert.ok(Object.values(secrets).includes('https://standalone.example.com'));
+    assert.ok(Object.values(secrets).includes('https://mcp-standalone.example.com'));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -677,6 +753,70 @@ describe('round-trip extract then inject', () => {
     assert.equal(hydrated.components[0].tools[0].headers['x-key'], 'billing-secret');
     assert.equal(hydrated.components[0].mcps[0].url, 'https://billing-mcp.example.com');
     assert.equal(hydrated.components[0].mcps[0].query_params.token, 'bmcp-tok');
+  });
+
+  it('round-trips component nodes with MCP secrets', () => {
+    const originalFlow = {
+      components: [
+        {
+          name: 'support',
+          tools: [
+            { name: 'api', headers: { 'x-key': 'tool-key' } },
+          ],
+          nodes: [
+            {
+              name: 'mcp_node',
+              headers: { Authorization: 'Bearer mcp-node-tok' },
+              url: 'https://mcp-node.example.com',
+            },
+          ],
+        },
+      ],
+    };
+
+    const { sanitizedFlow, secrets } = extractSecrets(originalFlow);
+
+    const envFile = path.join(tmpDir, ENV_FILE_NAME);
+    saveEnvFile(envFile, secrets);
+
+    const hydrated = injectSecrets(sanitizedFlow, envFile);
+
+    assert.equal(hydrated.components[0].tools[0].headers['x-key'], 'tool-key');
+    assert.equal(hydrated.components[0].nodes[0].headers.Authorization, 'Bearer mcp-node-tok');
+    assert.equal(hydrated.components[0].nodes[0].url, 'https://mcp-node.example.com');
+  });
+
+  it('round-trips nested components within nodes', () => {
+    const originalFlow = {
+      components: [
+        {
+          name: 'outer',
+          nodes: [
+            {
+              name: 'comp_node',
+              components: [
+                {
+                  name: 'inner',
+                  tools: [
+                    { name: 'deep_tool', url: 'https://deep.example.com', headers: { 'x-key': 'deep-secret' } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const { sanitizedFlow, secrets } = extractSecrets(originalFlow);
+
+    const envFile = path.join(tmpDir, ENV_FILE_NAME);
+    saveEnvFile(envFile, secrets);
+
+    const hydrated = injectSecrets(sanitizedFlow, envFile);
+
+    assert.equal(hydrated.components[0].nodes[0].components[0].tools[0].url, 'https://deep.example.com');
+    assert.equal(hydrated.components[0].nodes[0].components[0].tools[0].headers['x-key'], 'deep-secret');
   });
 
   it('allows URL swap by editing .env.retell between extract and inject', () => {

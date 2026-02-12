@@ -89,10 +89,43 @@ async function updateAgent(agentId, filePath) {
   }
 }
 
+async function publishAgent(agentId) {
+  try {
+    console.log(`Publishing agent with ID: ${agentId}...`);
+    const response = await retell.agent.publish(agentId);
+    console.log(`Agent ${agentId} published successfully.`);
+    return response;
+  } catch (error) {
+    // The publish endpoint returns an empty body with Content-Type: application/json,
+    // causing the SDK's JSON parser to fail. The server-side publish still succeeds.
+    // Detect this specific case and treat it as success.
+    if (error.type === 'invalid-json' && error.message?.includes('invalid json response body')) {
+      console.log(`Agent ${agentId} published successfully.`);
+      return { agent_id: agentId, published: true };
+    }
+    console.error(`Error publishing agent ${agentId}:`, error.response ? error.response.data : error.message);
+    throw error;
+  }
+}
+
+async function getAgentVersions(agentId) {
+  try {
+    console.log(`Retrieving versions for agent: ${agentId}...`);
+    const versions = await retell.agent.getVersions(agentId);
+    console.log(`Retrieved versions for agent ${agentId}.`);
+    return versions;
+  } catch (error) {
+    console.error(`Error retrieving versions for agent ${agentId}:`, error.response ? error.response.data : error.message);
+    throw error;
+  }
+}
+
 module.exports = {
   getAgent,
   listAgents,
   deleteAgent,
   deployAgent,
   updateAgent,
+  publishAgent,
+  getAgentVersions,
 };
