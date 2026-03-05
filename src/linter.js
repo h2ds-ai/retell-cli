@@ -14,6 +14,7 @@ const RULE = {
   NODE_FUNC_MISSING_SUCCESS: 'W212',
   NODE_EXTRACT_NEEDS_VARS:   'E220',
   NODE_BRANCH_MISSING_ELSE:  'E230',
+  NODE_FUNC_ELSE_PATTERN:    'W231',
   NODE_END_HAS_EDGES:        'W240',
   EDGE_NO_DEST:              'W300',
   EDGE_UNKNOWN_DEST:         'E310',
@@ -24,14 +25,15 @@ const RULE = {
   TOOL_UNREFERENCED:         'I500',
   TOOL_CUSTOM_NO_URL:        'W510',
   DUP_NODE_IDS:              'E600',
+  EQUATION_INCOMPLETE:       'W700',
 };
 
 const DEFAULT_SEVERITY = {
   E100: 'ERROR', E110: 'ERROR', E200: 'ERROR', E210: 'ERROR',
   I211: 'INFO',  W212: 'WARN',  E220: 'ERROR', E230: 'ERROR',
-  W240: 'WARN',  W300: 'WARN',  E310: 'ERROR', E400: 'ERROR',
-  E410: 'ERROR', W420: 'WARN',  I430: 'INFO',  I500: 'INFO',
-  W510: 'WARN',  E600: 'ERROR',
+  W231: 'WARN',  W240: 'WARN',  W300: 'WARN',  E310: 'ERROR',
+  E400: 'ERROR', E410: 'ERROR', W420: 'WARN',  I430: 'INFO',
+  I500: 'INFO',  W510: 'WARN',  W700: 'WARN',  E600: 'ERROR',
 };
 
 const SUCCESS_LABELS_DEFAULT = ['if successful', 'if_successful', 'success', 'successful'];
@@ -135,12 +137,13 @@ function indexNodes(flow) {
   return map;
 }
 
-/** Yield all outgoing edges from a node, including else_edge and skip_response_edge. */
+/** Yield all outgoing edges from a node, including else_edge, skip_response_edge, and always_edge. */
 function iterEdges(node) {
   const edges = [];
   if (Array.isArray(node.edges)) edges.push(...node.edges);
   if (node.else_edge) edges.push(node.else_edge);
   if (node.skip_response_edge) edges.push(node.skip_response_edge);
+  if (node.always_edge) edges.push(node.always_edge);
   return edges;
 }
 
@@ -187,6 +190,13 @@ function checkDefaults(flow, issues, cfg, autofix) {
 
   return fixes;
 }
+
+// ---------------------------------------------------------------------------
+// Equation validation constants
+// ---------------------------------------------------------------------------
+
+/** Unary operators that only need a left-hand operand (no right required). */
+const UNARY_OPS = new Set(['exists', 'not_exists', 'is_empty', 'is_not_empty']);
 
 // ---------------------------------------------------------------------------
 // Check: nodes (structure, edges, type-specific rules)
@@ -256,6 +266,17 @@ function checkNodes(flow, issues, cfg, autofix) {
           RULE.NODE_FUNC_MISSING_SUCCESS);
       }
 
+      // Function nodes should use else_edge, not "Else" in edges[]
+      const funcElseInEdges = (n.edges || []).some((e) => {
+        const prompt = ((e.transition_condition || {}).prompt || '').trim().toLowerCase();
+        return prompt === 'else';
+      });
+      if (funcElseInEdges && !n.else_edge) {
+        addIssue(issues, sev(RULE.NODE_FUNC_ELSE_PATTERN, cfg), where,
+          "function node has 'Else' in edges[] — should use else_edge instead (causes double-Else in dashboard)",
+          RULE.NODE_FUNC_ELSE_PATTERN);
+      }
+
     } else if (ntype === 'extract_dynamic_variables') {
       if (!n.variables || !Array.isArray(n.variables) || n.variables.length === 0) {
         addIssue(issues, sev(RULE.NODE_EXTRACT_NEEDS_VARS, cfg), where,
@@ -299,6 +320,152 @@ function checkNodes(flow, issues, cfg, autofix) {
       } else if (!(dest in nodes)) {
         addIssue(issues, sev(RULE.EDGE_UNKNOWN_DEST, cfg), where,
           `edge points to unknown destination_node_id '${dest}'`, RULE.EDGE_UNKNOWN_DEST);
+      }
+    }
+
+    // Equation edge validation (all node types)
+    for (const e of (n.edges || [])) {
+      const tc = e.transition_condition || {};
+      if (tc.type !== 'equation') continue;
+      const equations = tc.equations || [];
+      for (let i = 0; i < equations.length; i++) {
+        const eq = equations[i];
+        const left = eq.left || '';
+        const op = eq.operator || '';
+        const rightMissing = !('right' in eq) || eq.right === null || eq.right === undefined;
+        const problems = [];
+        if (!left) problems.push('empty left');
+        if (!op) problems.push('empty operator');
+        if (rightMissing && !UNARY_OPS.has(op)) problems.push('missing right');
+        if (problems.length > 0) {
+          addIssue(issues, sev(RULE.EQUATION_INCOMPLETE, cfg), where,
+            `equation edge ${e.id || '?'} condition[${i}] has: ${problems.join(', ')}`,
+            RULE.EQUATION_INCOMPLETE);
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Check: components (inner nodes within reusable components)
+// ---------------------------------------------------------------------------
+
+function checkComponents(flow, issues, cfg) {
+  const components = flow.components || [];
+  for (const comp of components) {
+    if (!comp || typeof comp !== 'object') continue;
+    const compName = comp.name || comp.id || '<unnamed component>';
+    const compNodes = comp.nodes || [];
+
+    // Build a node index scoped to this component + top-level nodes for cross-references
+    const topNodes = indexNodes(flow);
+    const compNodeMap = {};
+    for (const n of compNodes) {
+      if (n && typeof n === 'object') compNodeMap[n.id] = n;
+    }
+    // Component edges can reference both component-internal and top-level nodes
+    const allReachable = { ...topNodes, ...compNodeMap };
+
+    const compTools = indexTools(flow); // Components share top-level tools
+
+    for (const n of compNodes) {
+      if (!n || typeof n !== 'object') continue;
+      const where = `component:${compName} > ${nodeLabel(n)}`;
+      const ntype = n.type;
+
+      // Function node checks
+      if (ntype === 'function') {
+        if (!n.tool_id) {
+          addIssue(issues, sev(RULE.NODE_FUNC_NO_TOOL, cfg), where,
+            'function node must have tool_id', RULE.NODE_FUNC_NO_TOOL);
+        } else if (!(n.tool_id in compTools)) {
+          addIssue(issues, sev(RULE.NODE_FUNC_NO_TOOL, cfg), where,
+            `tool_id '${n.tool_id}' not found in tools list`, RULE.NODE_FUNC_NO_TOOL);
+        }
+
+        if (!hasSuccessEdge(n, cfg.success_edge_labels)) {
+          addIssue(issues, sev(RULE.NODE_FUNC_MISSING_SUCCESS, cfg), where,
+            "function node should include a success edge (e.g., 'If successful')",
+            RULE.NODE_FUNC_MISSING_SUCCESS);
+        }
+
+        // Function nodes should use else_edge
+        const funcElseInEdges = (n.edges || []).some((e) => {
+          const prompt = ((e.transition_condition || {}).prompt || '').trim().toLowerCase();
+          return prompt === 'else';
+        });
+        if (funcElseInEdges && !n.else_edge) {
+          addIssue(issues, sev(RULE.NODE_FUNC_ELSE_PATTERN, cfg), where,
+            "function node has 'Else' in edges[] — should use else_edge instead (causes double-Else in dashboard)",
+            RULE.NODE_FUNC_ELSE_PATTERN);
+        }
+
+      } else if (ntype === 'conversation') {
+        if (!n.instruction || !n.instruction.text) {
+          addIssue(issues, sev(RULE.NODE_CONV_NEEDS_TEXT, cfg), where,
+            'conversation node must have instruction.text', RULE.NODE_CONV_NEEDS_TEXT);
+        }
+
+      } else if (ntype === 'branch') {
+        const prompts = new Set(
+          (n.edges || [])
+            .map((e) => ((e.transition_condition || {}).prompt || '').trim().toLowerCase())
+        );
+        if (prompts.has('else') && !n.else_edge) {
+          addIssue(issues, sev(RULE.NODE_BRANCH_MISSING_ELSE, cfg), where,
+            "branch node uses 'Else' in edges but is missing else_edge (Retell requirement)",
+            RULE.NODE_BRANCH_MISSING_ELSE);
+        }
+
+      } else if (ntype === 'extract_dynamic_variables') {
+        if (!n.variables || !Array.isArray(n.variables) || n.variables.length === 0) {
+          addIssue(issues, sev(RULE.NODE_EXTRACT_NEEDS_VARS, cfg), where,
+            'extract_dynamic_variables must include non-empty variables array',
+            RULE.NODE_EXTRACT_NEEDS_VARS);
+        }
+
+      } else if (ntype === 'end') {
+        if (n.edges && n.edges.length > 0) {
+          addIssue(issues, sev(RULE.NODE_END_HAS_EDGES, cfg), where,
+            'end node should not have outgoing edges', RULE.NODE_END_HAS_EDGES);
+        }
+      }
+
+      // Edge destination checks within component
+      for (const e of iterEdges(n)) {
+        if (!e || typeof e !== 'object') continue;
+        const dest = e.destination_node_id;
+        if (!dest) {
+          addIssue(issues, cfg.treat_unconnected_edge_as || 'WARN', where,
+            'edge has no destination_node_id (editor may show as unconnected)',
+            RULE.EDGE_NO_DEST);
+        } else if (!(dest in allReachable)) {
+          addIssue(issues, sev(RULE.EDGE_UNKNOWN_DEST, cfg), where,
+            `edge points to unknown destination_node_id '${dest}'`, RULE.EDGE_UNKNOWN_DEST);
+        }
+      }
+
+      // Equation edge validation within component
+      for (const e of (n.edges || [])) {
+        const tc = e.transition_condition || {};
+        if (tc.type !== 'equation') continue;
+        const equations = tc.equations || [];
+        for (let i = 0; i < equations.length; i++) {
+          const eq = equations[i];
+          const left = eq.left || '';
+          const op = eq.operator || '';
+          const rightMissing = !('right' in eq) || eq.right === null || eq.right === undefined;
+          const problems = [];
+          if (!left) problems.push('empty left');
+          if (!op) problems.push('empty operator');
+          if (rightMissing && !UNARY_OPS.has(op)) problems.push('missing right');
+          if (problems.length > 0) {
+            addIssue(issues, sev(RULE.EQUATION_INCOMPLETE, cfg), where,
+              `equation edge ${e.id || '?'} condition[${i}] has: ${problems.join(', ')}`,
+              RULE.EQUATION_INCOMPLETE);
+          }
+        }
       }
     }
   }
@@ -480,6 +647,7 @@ function lintFlow(flowData, { configPath, rulePack, autofix = false, stats = fal
   checkModelChoice(flow, issues, cfg);
   checkDefaults(flow, issues, cfg, autofix);
   checkNodes(flow, issues, cfg, autofix);
+  checkComponents(flow, issues, cfg);
   checkTools(flow, issues, cfg);
   checkReachability(flow, issues, cfg);
   detectCycles(flow, issues, cfg);
@@ -536,6 +704,7 @@ module.exports = {
   RULE,
   DEFAULT_SEVERITY,
   SUCCESS_LABELS_DEFAULT,
+  UNARY_OPS,
   loadConfig,
   applyRulePack,
   lintFlow,
