@@ -837,3 +837,46 @@ describe('round-trip extract then inject', () => {
     assert.equal(hydrated.tools[0].url, 'https://dev.example.com/webhook/retell');
   });
 });
+
+describe('injectSecrets: Retell LLM tools', () => {
+  let tmpDir;
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'retell-llm-secrets-'));
+  });
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('resolves placeholders in general_tools and per-state tools', () => {
+    const envFile = path.join(tmpDir, '.env.retell');
+    fs.writeFileSync(envFile, 'FIND_TIMES_URL=https://devapi.example/v2/find_times\nBOOK_URL=https://devapi.example/v2/book\n');
+    const llm = {
+      general_tools: [{ type: 'custom', name: 'find_times', url: '{{FIND_TIMES_URL}}' }],
+      states: [{ name: 'booking', tools: [{ type: 'custom', name: 'book', url: '{{BOOK_URL}}' }] }],
+    };
+    const out = injectSecrets(llm, envFile);
+    assert.equal(out.general_tools[0].url, 'https://devapi.example/v2/find_times');
+    assert.equal(out.states[0].tools[0].url, 'https://devapi.example/v2/book');
+    assert.equal(llm.general_tools[0].url, '{{FIND_TIMES_URL}}', 'input is not mutated');
+  });
+
+  it('refuses an LLM with a placeholder it cannot resolve', () => {
+    const envFile = path.join(tmpDir, '.env.retell');
+    fs.writeFileSync(envFile, 'OTHER=x\n');
+    const llm = { general_tools: [{ type: 'custom', name: 'book', url: '{{BOOK_URL}}' }] };
+    assert.throws(() => injectSecrets(llm, envFile), /Unresolved secret placeholders: BOOK_URL/);
+  });
+});
+
+describe('flows.toolsPersisted', () => {
+  const { toolsPersisted } = require('../src/flows');
+  it('skips the follow-up update when create kept every tool', () => {
+    const cfg = { tools: [{ name: 'book' }, { name: 'find_times' }] };
+    assert.equal(toolsPersisted(cfg, { tools: [{ name: 'find_times' }, { name: 'book' }] }), true);
+  });
+  it('updates when create dropped a tool', () => {
+    const cfg = { tools: [{ name: 'book' }, { name: 'find_times' }] };
+    assert.equal(toolsPersisted(cfg, { tools: [{ name: 'book' }] }), false);
+    assert.equal(toolsPersisted(cfg, {}), false);
+  });
+});
