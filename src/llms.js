@@ -1,5 +1,23 @@
 const retell = require('./client');
 const fs = require('fs').promises;
+const path = require('path');
+const { injectSecrets, ENV_FILE_NAME, PLACEHOLDER_REGEX } = require('./secrets');
+
+/**
+ * Read an LLM file and resolve {{PLACEHOLDER}} tokens from the .env.retell next to
+ * it, the same way `flow deploy` does, so tool URLs never reach Retell as literals.
+ */
+async function readLlmConfig(filePath) {
+  const llmConfigStr = await fs.readFile(filePath, 'utf8');
+  let llmConfig = JSON.parse(llmConfigStr);
+  PLACEHOLDER_REGEX.lastIndex = 0;
+  if (PLACEHOLDER_REGEX.test(llmConfigStr)) {
+    const envFilePath = path.join(path.dirname(path.resolve(filePath)), ENV_FILE_NAME);
+    console.log('Detected secret placeholders: injecting from .env.retell...');
+    llmConfig = injectSecrets(llmConfig, envFilePath);
+  }
+  return llmConfig;
+}
 
 async function getLlm(llmId) {
   try {
@@ -39,8 +57,7 @@ async function deleteLlm(llmId) {
 async function deployLlm(filePath) {
   try {
     console.log(`Reading LLM configuration from ${filePath}...`);
-    const llmConfigStr = await fs.readFile(filePath, 'utf8');
-    const llmConfig = JSON.parse(llmConfigStr);
+    const llmConfig = await readLlmConfig(filePath);
 
     // Check if LLM has an ID (for update) or not (for create)
     if (llmConfig.llm_id || llmConfig.id) {
@@ -72,9 +89,8 @@ async function deployLlm(filePath) {
 async function updateLlm(llmId, filePath) {
   try {
     console.log(`Reading LLM configuration from ${filePath}...`);
-    const llmConfigStr = await fs.readFile(filePath, 'utf8');
-    const llmConfig = JSON.parse(llmConfigStr);
-    
+    const llmConfig = await readLlmConfig(filePath);
+
     // Remove any ID fields from the config
     delete llmConfig.llm_id;
     delete llmConfig.id;
@@ -95,4 +111,5 @@ module.exports = {
   deleteLlm,
   deployLlm,
   updateLlm,
+  readLlmConfig,
 };

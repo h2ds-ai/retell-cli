@@ -329,8 +329,15 @@ function injectSecrets(flowData, envFilePath) {
 
   const unresolved = new Set();
 
-  // Top-level tools, mcps, and nodes
+  // Top-level tools, mcps, and nodes. A Retell LLM keeps its tools in
+  // general_tools and per state in states[].tools.
   resolveToolList(hydrated.tools);
+  resolveToolList(hydrated.general_tools);
+  if (Array.isArray(hydrated.states)) {
+    for (const state of hydrated.states) {
+      resolveToolList(state.tools);
+    }
+  }
   resolveMcpList(hydrated.mcps);
   resolveNodeList(hydrated.nodes);
 
