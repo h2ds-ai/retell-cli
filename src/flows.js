@@ -60,6 +60,16 @@ async function pullFlowWithSecrets(flowId, outputPath) {
   return sanitizedFlow;
 }
 
+/**
+ * True when the create response already holds every tool the file declares,
+ * by name, so no follow-up update is needed.
+ */
+function toolsPersisted(flowConfig, createResponse) {
+  const wanted = (flowConfig.tools || []).map((t) => t.name).sort();
+  const got = ((createResponse && createResponse.tools) || []).map((t) => t.name).sort();
+  return wanted.length === got.length && wanted.every((name, i) => name === got[i]);
+}
+
 async function createOrUpdateFlow(filePath) {
   try {
     console.log(`Reading flow configuration from ${filePath}...`);
@@ -99,9 +109,15 @@ async function createOrUpdateFlow(filePath) {
       }
 
       const flowId = createResponse.conversation_flow_id;
+      // The create call once dropped tools, so an update followed to persist them.
+      // Retell now keeps them on create, and the follow-up update fails on any flow
+      // with finetune examples ("remove or update the finetune examples before
+      // deleting the associated node or edge"). Update only when tools are missing.
+      if (toolsPersisted(flowConfig, createResponse)) {
+        console.log(`Flow created with ID: ${flowId} (tools persisted on create).`);
+        return createResponse;
+      }
       console.log(`Flow created with ID: ${flowId}. Now updating to persist tools...`);
-
-      // Update the flow to persist tools
       const updateResponse = await retell.conversationFlow.update(flowId, flowConfig);
       console.log(`Flow ${flowId} updated successfully with tools.`);
       return updateResponse;
@@ -113,6 +129,7 @@ async function createOrUpdateFlow(filePath) {
 }
 
 module.exports = {
+  toolsPersisted,
   getFlow,
   listFlows,
   deleteFlow,

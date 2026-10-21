@@ -867,3 +867,16 @@ describe('injectSecrets: Retell LLM tools', () => {
     assert.throws(() => injectSecrets(llm, envFile), /Unresolved secret placeholders: BOOK_URL/);
   });
 });
+
+describe('flows.toolsPersisted', () => {
+  const { toolsPersisted } = require('../src/flows');
+  it('skips the follow-up update when create kept every tool', () => {
+    const cfg = { tools: [{ name: 'book' }, { name: 'find_times' }] };
+    assert.equal(toolsPersisted(cfg, { tools: [{ name: 'find_times' }, { name: 'book' }] }), true);
+  });
+  it('updates when create dropped a tool', () => {
+    const cfg = { tools: [{ name: 'book' }, { name: 'find_times' }] };
+    assert.equal(toolsPersisted(cfg, { tools: [{ name: 'book' }] }), false);
+    assert.equal(toolsPersisted(cfg, {}), false);
+  });
+});
