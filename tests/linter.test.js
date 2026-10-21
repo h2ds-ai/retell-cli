@@ -1455,3 +1455,37 @@ describe('W700 — multiple equations', () => {
     assert.ok(!findIssue(issues, 'W700'));
   });
 });
+
+describe('lintFlow: finetune transition examples', () => {
+  const base = () => ({
+    start_node_id: 'a',
+    model_choice: { type: 'cascading', model: 'gpt-6.1-sol' },
+    nodes: [
+      { id: 'a', type: 'conversation', instruction: { type: 'prompt', text: 'hi' },
+        edges: [{ id: 'e1', destination_node_id: 'b', transition_condition: { type: 'prompt', prompt: 'go' } }],
+        finetune_transition_examples: [] },
+      { id: 'b', type: 'end' },
+    ],
+  });
+  const codes = (flow) => lintFlow(flow).issues.map((i) => i.code);
+
+  it('flags an example that names its own node (E320)', () => {
+    const f = base();
+    f.nodes[0].finetune_transition_examples = [{ id: 'x', transcript: [{ role: 'user', content: 'ok' }], destination_node_id: 'a' }];
+    assert.ok(codes(f).includes('E320'));
+  });
+  it('flags an unknown destination (E330)', () => {
+    const f = base();
+    f.nodes[0].finetune_transition_examples = [{ id: 'x', transcript: [{ role: 'user', content: 'ok' }], destination_node_id: 'zzz' }];
+    assert.ok(codes(f).includes('E330'));
+  });
+  it('accepts a stay example with no destination and a real destination', () => {
+    const f = base();
+    f.nodes[0].finetune_transition_examples = [
+      { id: 'x', transcript: [{ role: 'user', content: 'hm' }] },
+      { id: 'y', transcript: [{ role: 'user', content: 'done' }], destination_node_id: 'b' },
+    ];
+    const c = codes(f);
+    assert.ok(!c.includes('E320') && !c.includes('E330'));
+  });
+});

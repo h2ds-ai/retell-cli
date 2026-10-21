@@ -18,6 +18,8 @@ const RULE = {
   NODE_END_HAS_EDGES:        'W240',
   EDGE_NO_DEST:              'W300',
   EDGE_UNKNOWN_DEST:         'E310',
+  FT_EXAMPLE_SELF_DEST:      'E320',
+  FT_EXAMPLE_UNKNOWN_DEST:   'E330',
   START_NOT_FOUND:           'E400',
   NO_END_NODE:               'E410',
   NODE_UNREACHABLE:          'W420',
@@ -34,6 +36,7 @@ const DEFAULT_SEVERITY = {
   W231: 'WARN',  W240: 'WARN',  W300: 'WARN',  E310: 'ERROR',
   E400: 'ERROR', E410: 'ERROR', W420: 'WARN',  I430: 'INFO',
   I500: 'INFO',  W510: 'WARN',  W700: 'WARN',  E600: 'ERROR',
+  E320: 'ERROR', E330: 'ERROR',
 };
 
 const SUCCESS_LABELS_DEFAULT = ['if successful', 'if_successful', 'success', 'successful'];
@@ -636,6 +639,36 @@ function graphStats(flow) {
  * @param {boolean} options.stats    - include graph stats in result
  * @returns {{ issues: Object[], stats?: Object, flow: Object }}
  */
+/**
+ * Finetune transition examples. destination_node_id is optional: leaving it out
+ * means "stay on this node". An example that names its own node is accepted on
+ * create but makes Retell refuse every later update of the flow ("Please remove
+ * or update the finetune examples before deleting the associated node or edge"),
+ * so it is an error. So is a destination that is not a node in the flow.
+ */
+function checkFinetuneExamples(flow, issues, cfg) {
+  const nodeLists = [flow.nodes || []];
+  for (const comp of flow.components || []) nodeLists.push(comp.nodes || []);
+  for (const nodes of nodeLists) {
+    const ids = new Set(nodes.map((n) => n.id));
+    for (const node of nodes) {
+      for (const ex of node.finetune_transition_examples || []) {
+        const dest = ex.destination_node_id;
+        if (dest === undefined || dest === null || dest === '') continue;
+        if (dest === node.id) {
+          addIssue(issues, sev(RULE.FT_EXAMPLE_SELF_DEST, cfg), nodeLabel(node),
+            `finetune transition example ${ex.id || '<no-id>'} names its own node; leave destination_node_id out for "stay"`,
+            RULE.FT_EXAMPLE_SELF_DEST);
+        } else if (!ids.has(dest)) {
+          addIssue(issues, sev(RULE.FT_EXAMPLE_UNKNOWN_DEST, cfg), nodeLabel(node),
+            `finetune transition example ${ex.id || '<no-id>'} names unknown node ${dest}`,
+            RULE.FT_EXAMPLE_UNKNOWN_DEST);
+        }
+      }
+    }
+  }
+}
+
 function lintFlow(flowData, { configPath, rulePack, autofix = false, stats = false } = {}) {
   const cfg = loadConfig(configPath);
   if (rulePack) applyRulePack(cfg, rulePack);
@@ -649,6 +682,7 @@ function lintFlow(flowData, { configPath, rulePack, autofix = false, stats = fal
   checkNodes(flow, issues, cfg, autofix);
   checkComponents(flow, issues, cfg);
   checkTools(flow, issues, cfg);
+  checkFinetuneExamples(flow, issues, cfg);
   checkReachability(flow, issues, cfg);
   detectCycles(flow, issues, cfg);
 
